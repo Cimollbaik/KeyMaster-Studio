@@ -700,6 +700,17 @@ const makePreview = (src) => {
     return prevCv.toDataURL('image/jpeg', 0.82);
   } catch (e) { return null; }
 };
+const edgeTransparent = (d, w, h) => {
+  if (w < 4 || h < 4) return false;
+  const n = 12;
+  for (let i = 0; i <= n; i++) {
+    const x = Math.round(i * (w - 1) / n), y = Math.round(i * (h - 1) / n);
+    for (const [a, b] of [[x, 1], [x, h - 2], [1, y], [w - 2, y]]) {
+      if (d[(b * w + a) * 4 + 3] > 10) return false;
+    }
+  }
+  return true;
+};
 const edgeBg = (d, w, h) => {
   if (w < 4 || h < 4) return '';
   const px = [];
@@ -715,6 +726,11 @@ const edgeBg = (d, w, h) => {
   return '';
 };
 const fixBgKeywords = (kws, bg) => {
+  if (bg === 'transparent') {
+    const o = (kws || []).filter(k => !/^(white|black|light|dark|gr[ae]y|plain|solid|studio|simple|isolated)?\s*background$/i.test(String(k).trim()));
+    ['transparent background', 'isolated'].forEach(t => { if (!o.some(k => String(k).trim().toLowerCase() === t)) o.push(t); });
+    return o;
+  }
   const wrong = bg === 'white' ? /^(black|dark|gr[ae]y|dark gr[ae]y) background$/i : /^(white|light|gr[ae]y) background$/i;
   const out = (kws || []).filter(k => !wrong.test(String(k).trim()));
   const mine = bg + ' background';
@@ -738,15 +754,20 @@ const resizeImg = (file, maxDim = 1024) => new Promise((res, rej) => {
       const cv = document.getElementById('processing-canvas');
       cv.width = w; cv.height = h;
       const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      let transp = false;
+      try { transp = edgeTransparent(ctx.getImageData(0, 0, w, h).data, w, h); } catch (err) {}
+      ctx.globalCompositeOperation = 'destination-over';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
       URL.revokeObjectURL(url);
       let bg = '';
       try {
         const dd = ctx.getImageData(0, 0, w, h).data;
         if (!hasVisibleContent(dd)) return rej(new Error('Image appears blank'));
-        bg = edgeBg(dd, w, h);
+        bg = transp ? 'transparent' : edgeBg(dd, w, h);
       } catch (err) {}
       res({ data: cv.toDataURL('image/jpeg', 0.85).split(',')[1], mimeType: 'image/jpeg', thumb: makeThumb(cv), preview: makePreview(cv), bg });
     } catch (err) { rej(new Error('Image processing failed')); }
@@ -755,7 +776,7 @@ const resizeImg = (file, maxDim = 1024) => new Promise((res, rej) => {
   img.src = url;
 });
 // <<code-hint
-const CODE_GENERIC = new Set('draw setup scene camera render renderer light lights update helper function const time width height mesh group material geometry color colors position scale rotation ease easing smoothstep clamp lerp mix rand random seed segment stagger loop speed hero accent amount count index value offset angle phase build make create init state items list point points path curve shape shapes size radius total max min delta step frame global canvas offscreen three this that from with then base main test temp tmp data cache warm compile bevel segments emissive intensity opacity transform visible vector matrix object objects layer layers fade easeoutback pure noise unit units half full left right top bottom center centre inner outer start end mid next prev last first each item part parts tick wave warna maks teks target skala terapkan buat rbox bikin atur hitung posisi ukuran kecepatan durasi tampil mulai selesai awal akhir nilai ambil tambah ubah jalankan puncak pulse root shadow aksen azimut jumlah kiri kanan atas bawah dasar keluar rapat gelap terang'.split(' '));
+const CODE_GENERIC = new Set('vinyet vignette lentera kuningan podium draw setup scene camera render renderer light lights update helper function const time width height mesh group material geometry color colors position scale rotation ease easing smoothstep clamp lerp mix rand random seed segment stagger loop speed hero accent amount count index value offset angle phase build make create init state items list point points path curve shape shapes size radius total max min delta step frame global canvas offscreen three this that from with then base main test temp tmp data cache warm compile bevel segments emissive intensity opacity transform visible vector matrix object objects layer layers fade easeoutback pure noise unit units half full left right top bottom center centre inner outer start end mid next prev last first each item part parts tick wave warna maks teks target skala terapkan buat rbox bikin atur hitung posisi ukuran kecepatan durasi tampil mulai selesai awal akhir nilai ambil tambah ubah jalankan puncak pulse root shadow aksen azimut jumlah kiri kanan atas bawah dasar keluar rapat gelap terang'.split(' '));
 const hexToName = (h) => {
   const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
@@ -799,7 +820,7 @@ const summarizeCode = (src) => {
     if (hdr.length >= 10) break;
   }
   const hdrSet = new Set(hdr);
-  if (hdr.length) parts.push('HEADER written by the author (most reliable; "Aksi hero" or "Hero action" = the main motion):\n- ' + hdr.join('\n- ').slice(0, 1200));
+  if (hdr.length) parts.push('HEADER written by the author (most reliable; "Aksi hero" or "Hero action" = the main motion):\n- ' + hdr.join('\n- ').slice(0, 3600));
   // komentar lain
   const notes = [];
   const pushNote = (t) => {
@@ -1214,7 +1235,7 @@ function buildPrompt(isVideo, titleLen, descLen, kwCount, codeHint, noImage) {
   const minKw = Math.max(15, Math.round(kwCount * 0.8));
   let hintBlock = '';
   if (codeHint) {
-    hintBlock = '\nSOURCE CODE HINT: this asset is an animation generated from code. The notes below were taken from that code and describe what it shows (objects, colors, style, action, loop). Use them to identify objects, colors and action. The "Engine" line tells whether it is 3D or flat 2D: follow it for style words (3D: "3d render"; 2D: flat 2d animation or motion graphics; never "vector"). "Palette" gives approximate colors. "Names of parts" may be noisy: use only names that match what is visible. If the notes conflict with the image(s), trust the image(s). NEVER mention code, programming, software, studios or tool names in any field. If the notes say it is a seamless loop, add the keywords "seamless loop" and "looping animation". The HEADER (if present) is the most reliable: its "Aksi hero" / "Hero action" line is the main motion. Notes may be in Indonesian: translate precisely (lonceng=bell, lilin=candle, bintang=star, kaus kaki=stocking, rak perapian=fireplace mantel, kado/hadiah=gift box, tongkat permen=candy cane, kue jahe=gingerbread, pita=ribbon, simpul=knot, kereta=train, loko=locomotive, gerbong=freight car, rel=rail track, salju=snow, pohon=tree, asap=smoke, pintu=door, atap=roof, dinding=wall, jendela=window, permen=candy, karangan bunga=wreath, api=flame, cerobong=chimney, roda=wheel, tiang lampu=lamppost, kilau=sparkle, ranting pinus=pine sprig, piring=plate, meja=table). Only use objects that are really visible.'
+    hintBlock = '\nSOURCE CODE HINT: this asset is an animation generated from code. The notes below were taken from that code and describe what it shows (objects, colors, style, action, loop). Use them to identify objects, colors and action. The "Engine" line tells whether it is 3D or flat 2D: follow it for style words (3D: "3d render"; 2D: flat 2d animation or motion graphics; never "vector"). "Palette" gives approximate colors. "Names of parts" may be noisy: use only names that match what is visible. If the notes conflict with the image(s), trust the image(s). NEVER mention code, programming, software, studios or tool names in any field. If the notes say it is a seamless loop, add the keywords "seamless loop" and "looping animation". The HEADER (if present) is the most reliable: its "Aksi hero" / "Hero action" line is the main motion. Notes may be in Indonesian: translate precisely (lonceng=bell, lilin=candle, bintang=star, kaus kaki=stocking, rak perapian=fireplace mantel, kado/hadiah=gift box, tongkat permen=candy cane, kue jahe=gingerbread, pita=ribbon, simpul=knot, kereta=train, loko=locomotive, gerbong=freight car, rel=rail track, salju=snow, pohon=tree, asap=smoke, pintu=door, atap=roof, dinding=wall, jendela=window, permen=candy, karangan bunga=wreath, api=flame, cerobong=chimney, roda=wheel, tiang lampu=lamppost, kilau=sparkle, ranting pinus=pine sprig, piring=plate, meja=table, vinyet=vignette, lentera=lantern, kuningan=brass, gelombang=wave, kelopak=petal, bunga=flower, lingkaran=circle, ungu=purple, emas=gold, tabung=tube, ruang judul=copy space, ruang kosong=copy space, lapang=empty space). If the HEADER says there is empty space for a title or text ("ruang judul", "ruang kosong", "lapang"), add the keyword "copy space" and "no text". Never output a word that is not English as a keyword; translate it first. Only use objects that are really visible.'
       + (noImage ? '\nNOTE: no image could be attached, so rely ONLY on these notes. Set has_people false unless the notes clearly say humans appear.' : '')
       + '\n---\n' + codeHint + '\n---\n';
   }
@@ -1572,6 +1593,7 @@ const processFile = async (idx) => {
     const gc = document.getElementById('global-context').value.trim();
     let prompt = buildPrompt(isVideo, targets.titleLen, targets.descLen, targets.kwCount, codeHint, codeOnly);
     if (gc) prompt += `\n\nGlobal Context (optional hint from the user about this batch; use it only for naming or theme when it matches what is visible; the image always wins; NEVER add keywords for things that are not visible): ${gc}`;
+    if (bgName === 'transparent') prompt += '\n\nIMPORTANT: the original file has a TRANSPARENT background; the attached image shows it filled with white only for preview. NEVER write \"white background\" in the title, description or keywords. Use \"transparent background\" and \"isolated\" instead.';
     let errs = [], data = null, att = 0;
     while (att <= 1) {
       let p = prompt;
