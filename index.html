@@ -518,7 +518,7 @@ const refreshFlagUI = () => {
   const ed = document.getElementById('toggle-editorial').checked;
   const hAi = document.getElementById('hint-ai');
   hAi.className = 'toggle-hint' + (ai ? '' : ' warn');
-  hAi.textContent = ai ? 'ON: Adobe "Is generative AI" = yes · Magnific + Prompt/Model + _ai_generated · Vecteezy: judul + keyword diberi "AI generated".' : 'OFF: SEMUA baris diekspor sebagai BUKAN AI.';
+  hAi.textContent = ai ? 'ON: Adobe "Is generative AI" = yes · Magnific + Prompt/Model + _ai_generated.' : 'OFF: SEMUA baris diekspor sebagai BUKAN AI.';
   const hEd = document.getElementById('hint-editorial');
   hEd.className = 'toggle-hint' + (ed ? ' warn' : '');
   hEd.textContent = ed ? 'ON: Shutterstock Editorial = yes, Vecteezy License = editorial.' : 'OFF: diekspor sebagai komersial (default).';
@@ -1858,12 +1858,7 @@ const alignTitleKw = (out, title) => {
   }
   return res;
 };
-const vzTitle = (r) => {
-  const t = String(r.vz_title || '');
-  const el = document.getElementById('toggle-ai');
-  if (el && el.checked && t && !/ai[\s-]*generated/i.test(t)) return t + ', AI generated';
-  return t;
-};
+const vzTitle = (r) => String(r.vz_title || '');
 const cleanKw = (list, r, platform) => {
   const base = list.filter(x => !isReleaseTag(x));
   const hasPeople = r.has_people === true || [r.adobe_title || ''].concat(base.filter(x => !NO_PEOPLE_RE.test(String(x).trim())).slice(0, 15)).some(x => kwWords(x).some(w => PEOPLE_WORDS.has(w)));
@@ -1899,10 +1894,7 @@ const getDisplayKw = (r, platform, targets) => {
   const maxKw = Math.min((targets || getTargetSettings()).kwCount, platform === 'adobe' ? 49 : 50);
   let k = kwForPlatform(cleanKw(r._cleanKeywords || r.keywords || [], r, platform), platform, r);
   const ai = document.getElementById('toggle-ai').checked;
-  if (platform === 'vecteezy' && ai) {
-    k = k.filter(x => x !== 'ai' && x !== 'generated').slice(0, maxKw - 2);
-    k.push('ai', 'generated');
-  } else if (platform === 'magnific' && ai) {
+  if (platform === 'magnific' && ai) {
     k = k.filter(x => {
       const lower = String(x).toLowerCase();
       return !isReleaseTag(lower) && lower !== '_ai_generated';
