@@ -438,7 +438,7 @@ const platformFields = (r, p) => {
   const kw = getDisplayKw(r, p).join(', ');
   if (p === 'adobe') return { title: r.adobe_title, keywords: kw, category: r.adobe_cat };
   if (p === 'shutterstock') return { desc: r.ss_desc, keywords: kw, categories: [r.ss_cat, r.ss_cat2].filter((x, n, a) => x && a.indexOf(x) === n).join(', ') };
-  if (p === 'vecteezy') return { title: r.vz_title, desc: r.vz_desc, keywords: kw, category: r.vz_cat };
+  if (p === 'vecteezy') return { title: vzTitle(r), desc: r.vz_desc, keywords: kw, category: r.vz_cat };
   if (p === 'magnific') return { title: r.mg_title, keywords: kw, type: r.mg_type };
   if (p === 'pond5') return { title: r.p5_title, desc: r.p5_desc, keywords: kw, category: r.p5_cat };
   return {};
@@ -518,7 +518,7 @@ const refreshFlagUI = () => {
   const ed = document.getElementById('toggle-editorial').checked;
   const hAi = document.getElementById('hint-ai');
   hAi.className = 'toggle-hint' + (ai ? '' : ' warn');
-  hAi.textContent = ai ? 'ON: Adobe "Is generative AI" = yes · Magnific + Prompt/Model + _ai_generated.' : 'OFF: SEMUA baris diekspor sebagai BUKAN AI.';
+  hAi.textContent = ai ? 'ON: Adobe "Is generative AI" = yes · Magnific + Prompt/Model + _ai_generated · Vecteezy: judul + keyword diberi "AI generated".' : 'OFF: SEMUA baris diekspor sebagai BUKAN AI.';
   const hEd = document.getElementById('hint-editorial');
   hEd.className = 'toggle-hint' + (ed ? ' warn' : '');
   hEd.textContent = ed ? 'ON: Shutterstock Editorial = yes, Vecteezy License = editorial.' : 'OFF: diekspor sebagai komersial (default).';
@@ -1259,7 +1259,7 @@ ${style3d}
 - Use the keywords "vector" or "illustration" ONLY for real vector artwork. ${isVideo ? 'This is a VIDEO: NEVER use the keyword "vector".' : ''}
 - If identifiable faces/children/brands visible, add "_model_release_needed" or "_property_release_needed" at end of keywords.
 
-keywords: target ${Math.max(kwCount - 3, minKw)}-${kwCount} keywords (Adobe allows at most 49), ordered by importance. Every keyword MUST be one of: (a) something clearly visible in the image(s): each visible object, part, character, action, setting; (b) an obvious synonym or broader term of a visible object (for example stocking -> christmas stocking, holiday decoration); (c) the art style or technique actually used; (d) a dominant color actually seen; (e) a technical tag. To reach the target honestly: list every visible object and part separately, add accurate synonyms, the action, the colors and the composition. Do NOT invent concepts, moods, symbolism or buyer use cases that are not clearly present. Do NOT add use cases such as web design, business presentation or greeting card unless the asset is literally a template, mockup or card. If you cannot find enough relevant keywords, return FEWER keywords: NEVER pad with generic terms. NEVER use filler such as digital, graphic, element, object, style, art, render, symbol, concept, idea, creative. Vecteezy splits keywords into single words, so every word of a multi-word keyword must also make sense on its own. Double-check spelling.
+keywords: target ${Math.max(kwCount - 3, minKw)}-${kwCount} keywords (Adobe allows at most 49), ordered by importance. Every keyword MUST be one of: (a) something clearly visible in the image(s): each visible object, part, character, action, setting; (b) an obvious synonym or broader term of a visible object (for example stocking -> christmas stocking, holiday decoration); (c) the art style or technique actually used; (d) a dominant color actually seen; (e) a technical tag. To reach the target honestly: list every visible object and part separately, add accurate synonyms, the action, the colors and the composition. Do NOT invent concepts, moods, symbolism or buyer use cases that are not clearly present. Do NOT add use cases such as web design, business presentation or greeting card unless the asset is literally a template, mockup or card. If you cannot find enough relevant keywords, return FEWER keywords: NEVER pad with generic terms. NEVER use filler such as digital, graphic, element, object, style, art, render, symbol, concept, idea, creative. NEVER add cultural, spiritual or mood words (ritual, spiritual, sacred, tradition) or the words 2d, design, minimalist unless that is clearly visible or literally true. Use the same word in at most 3 keywords: each keyword must add NEW meaning, so prefer a different specific term over another variation of the same word. Vecteezy splits keywords into single words, so every word of a multi-word keyword must also make sense on its own. Double-check spelling.
 - STRICT ORDER of the keyword list:
   1) POSITION 1-10: core subject + asset type (what a buyer would type first)
   2) POSITION 11-20: other clearly visible elements and details
@@ -1740,7 +1740,7 @@ const cardField = (item, platform, label, valueHtml, field, extraHtml = '') => `
 
 // Get keyword untuk display per platform — mirror apa yang akan di-export
 const PEOPLE_WORDS = new Set(['people','person','man','men','woman','women','boy','girl','child','children','kid','kids','student','students','teacher','courier','rider','driver','gardener','worker','workers','character','characters','female','male','human','humans','freelancer','nomad','volunteer','customer','family','couple','therapist','patient']);
-const JUNK_KW = new Set(['digital','graphic','graphics','element','object','style','art','clean','render','rendering','rendered','symbol','magic','magical','tradition','traditions','event background','joy','spirit','happiness','wonder','nostalgia','concept','idea','creative','image','picture','beautiful','amazing','stunning','nice','lovely','gorgeous','wonderful','best','great','holiday spirit','christmas spirit','festive spirit']);
+const JUNK_KW = new Set(['digital','graphic','graphics','element','object','style','art','clean','render','rendering','rendered','symbol','magic','magical','tradition','traditions','event background','joy','spirit','happiness','wonder','nostalgia','concept','idea','creative','image','picture','beautiful','amazing','stunning','nice','lovely','gorgeous','wonderful','best','great','holiday spirit','christmas spirit','festive spirit','ritual','rituals','spiritual','spirituality','2d','design','designs','vinyet']);
 const NO_PEOPLE_RE = /^no (people|person|humans?)$/i;
 const kwWords = (x) => String(x).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 const TECH_KW = new Set(['no people','horizontal','vertical','square','isolated','copy space','copyspace','studio shot','indoor','indoors','outdoor','outdoors','landscape orientation','portrait orientation']);
@@ -1781,6 +1781,89 @@ const orderKw = (list) => {
   }
   return main.concat(colors, tech);
 };
+
+// ===== Perbaikan v43: penjaga kata berulang, selaras judul, variasi antar file =====
+const MAX_STEM_REPEAT = 3;
+const limitRepeats = (list, maxN) => {
+  const cnt = {}, out = [];
+  for (const x of list) {
+    const stems = kwWords(x).filter(w => !KW_STOP.has(w)).map(stemWord);
+    if (stems.some(t => t.length > 2 && (cnt[t] || 0) >= maxN)) continue;
+    stems.forEach(t => { cnt[t] = (cnt[t] || 0) + 1; });
+    out.push(x);
+  }
+  return out;
+};
+let _bfCache = { sig: '', freq: new Map(), n: 0 };
+const batchFreq = () => {
+  const done = ((typeof appState !== 'undefined' && appState.queue) || []).filter(i => i.status === 'done' && i.result);
+  let tot = 0;
+  done.forEach(i => { tot += (i.result._cleanKeywords || i.result.keywords || []).length; });
+  const sig = done.length + ':' + tot;
+  if (_bfCache.sig === sig) return _bfCache;
+  const freq = new Map();
+  done.forEach(i => {
+    const seen = new Set();
+    (i.result._cleanKeywords || i.result.keywords || []).forEach(k => {
+      const t = kwStem(k);
+      if (t && !seen.has(t)) { seen.add(t); freq.set(t, (freq.get(t) || 0) + 1); }
+    });
+  });
+  _bfCache = { sig, freq, n: done.length };
+  return _bfCache;
+};
+// Variasi antar file satu batch (konservatif): 3 keyword pertama tetap; di posisi 4-10, maksimal 3 keyword yang
+// dipakai >=80% file lain dan tidak ada di judul digeser ke belakang, diganti keyword khas file ini.
+const diversifyKw = (out, title) => {
+  const bf = batchFreq();
+  if (bf.n < 4 || out.length < 12) return out;
+  const tS = new Set(kwWords(title || '').map(stemWord));
+  const isCommon = (x) => (bf.freq.get(kwStem(x)) || 0) / bf.n >= 0.8 && !kwWords(x).some(w => tS.has(stemWord(w)));
+  const isMain = (x) => !isTechKw(x) && !isColorKw(x);
+  const head = out.slice(0, 3), rest = out.slice(3);
+  const top = rest.slice(0, 7), tail = rest.slice(7);
+  const demote = top.filter(x => isMain(x) && isCommon(x)).slice(0, 3);
+  if (!demote.length) return out;
+  const newTop = top.filter(x => !demote.includes(x));
+  const pulled = [];
+  for (const x of tail) { if (pulled.length >= demote.length) break; if (isMain(x) && !isCommon(x)) pulled.push(x); }
+  const tail2 = tail.filter(x => !pulled.includes(x));
+  return head.concat(newTop, pulled, demote, tail2);
+};
+const TITLE_SKIP = new Set(['style','background','featuring','showing','shows','that','this','their','using','used','while','during','around','between']);
+const titleFor = (r, p) => ({ adobe: r.adobe_title, shutterstock: r.ss_desc, vecteezy: r.vz_title, magnific: r.mg_title, pond5: r.p5_title }[p] || r.adobe_title || '');
+// Kata penting di judul yang belum ada di 10 keyword pertama: maksimal 3 dinaikkan ke posisi 6-8.
+const alignTitleKw = (out, title) => {
+  if (!title || out.length < 12) return out;
+  const tStems = [];
+  kwWords(title).forEach(w => {
+    if (w.length < 4 || KW_STOP.has(w) || JUNK_KW.has(w) || TITLE_SKIP.has(w)) return;
+    const t = stemWord(w);
+    if (!tStems.includes(t)) tStems.push(t);
+  });
+  const kS = (x) => kwWords(x).map(stemWord);
+  const covered = new Set();
+  out.slice(0, 10).forEach(x => kS(x).forEach(t => covered.add(t)));
+  const res = out.slice();
+  let promoted = 0, at = 5;
+  for (const t of tStems) {
+    if (promoted >= 3) break;
+    if (covered.has(t)) continue;
+    const idx = res.findIndex((x, i) => i >= 10 && !isTechKw(x) && !isColorKw(x) && kwWords(x).length <= 2 && kS(x).includes(t));
+    if (idx < 0) continue;
+    const it = res.splice(idx, 1)[0];
+    res.splice(Math.min(at, res.length), 0, it);
+    at++; promoted++;
+    kS(it).forEach(u => covered.add(u));
+  }
+  return res;
+};
+const vzTitle = (r) => {
+  const t = String(r.vz_title || '');
+  const el = document.getElementById('toggle-ai');
+  if (el && el.checked && t && !/ai[\s-]*generated/i.test(t)) return t + ', AI generated';
+  return t;
+};
 const cleanKw = (list, r, platform) => {
   const base = list.filter(x => !isReleaseTag(x));
   const hasPeople = r.has_people === true || [r.adobe_title || ''].concat(base.filter(x => !NO_PEOPLE_RE.test(String(x).trim())).slice(0, 15)).some(x => kwWords(x).some(w => PEOPLE_WORDS.has(w)));
@@ -1802,6 +1885,9 @@ const cleanKw = (list, r, platform) => {
     out = kept;
   }
   out = orderKw(out);
+  out = limitRepeats(out, MAX_STEM_REPEAT);
+  out = diversifyKw(out, titleFor(r, platform));
+  out = alignTitleKw(out, titleFor(r, platform));
   if (/\b3d\b/i.test(r.adobe_title || r.p5_title || '')) {
     const idx = out.findIndex(x => /^3d[\s-]?render$/i.test(String(x).trim()));
     if (idx < 0) out.splice(Math.min(2, out.length), 0, '3d render');
@@ -1813,7 +1899,10 @@ const getDisplayKw = (r, platform, targets) => {
   const maxKw = Math.min((targets || getTargetSettings()).kwCount, platform === 'adobe' ? 49 : 50);
   let k = kwForPlatform(cleanKw(r._cleanKeywords || r.keywords || [], r, platform), platform, r);
   const ai = document.getElementById('toggle-ai').checked;
-  if (platform === 'magnific' && ai) {
+  if (platform === 'vecteezy' && ai) {
+    k = k.filter(x => x !== 'ai' && x !== 'generated').slice(0, maxKw - 2);
+    k.push('ai', 'generated');
+  } else if (platform === 'magnific' && ai) {
     k = k.filter(x => {
       const lower = String(x).toLowerCase();
       return !isReleaseTag(lower) && lower !== '_ai_generated';
@@ -1860,7 +1949,7 @@ const renderCard = (item, platform) => {
     `;
   } else if (platform === 'vecteezy') {
     bodyHtml = `
-      ${cardField(item, platform, 'Title', esc(r.vz_title || ''), 'title')}
+      ${cardField(item, platform, 'Title', esc(vzTitle(r)), 'title')}
       ${cardField(item, platform, 'Description', esc(r.vz_desc || ''), 'desc')}
       ${cardField(item, platform, 'Keywords', kwHtml, 'keywords', `<span class="result-count">${kwCount}/${targets.kwCount}</span>`)}
       ${cardField(item, platform, 'Category', `<span class="result-tag">${esc(r.vz_cat || '')}</span>`, 'category')}
@@ -1918,7 +2007,7 @@ const renderTableRow = (item, platform) => {
   } else if (platform === 'vecteezy') {
     return `<tr>
       <td><div class="cell-wrap"><span class="cell-text cell-filename">${esc(item.filename)}</span></div></td>
-      <td><div class="cell-wrap"><span class="cell-text">${esc(r.vz_title || '')}</span></div></td>
+      <td><div class="cell-wrap"><span class="cell-text">${esc(vzTitle(r))}</span></div></td>
       <td><div class="cell-wrap"><span class="cell-text">${esc(r.vz_desc || '')}</span></div></td>
       <td><div class="cell-wrap"><span class="cell-text">${esc(kws)}</span><button class="cell-copy" onclick="copyField('${item.id}','${platform}','keywords')">📋</button></div></td>
       <td><div class="cell-wrap"><span class="cell-text">${esc(r.vz_cat || '')}</span></div></td>
@@ -2095,7 +2184,7 @@ window.exportCSV = (platform) => {
     csv = 'Filename,Title,Description,Keywords,License\n';
     done.forEach(i => {
       const safeFilename = i.filename.replace(/ /g, '_');
-      csv += [safeFilename, i.result.vz_title, i.result.vz_desc, getKw(i.result, 'vecteezy', targets), ed ? 'editorial' : ''].map(v => eC(v)).join(',') + '\n';
+      csv += [safeFilename, vzTitle(i.result), i.result.vz_desc, getKw(i.result, 'vecteezy', targets), ed ? 'editorial' : ''].map(v => eC(v)).join(',') + '\n';
     });
     download(csv, `vecteezy${ext}.csv`);
   } else if (platform === 'magnific') {
