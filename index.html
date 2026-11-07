@@ -1184,6 +1184,7 @@ const KW_STOP = new Set(['and','or','of','the','a','an','with','in','on','for','
 // Vecteezy: single-word only. Video tidak terima "vector", "footage", "clipart", "video".
 const VZ_BLOCKED_VIDEO = new Set(['vector', 'footage', 'clipart', 'video', 'animation']);
 const VZ_BLOCKED_ALL = new Set(['footage', 'clipart']);
+const VZ_FUNC_WORDS = new Set(['now','off','up','on','in','of','to','by','at','as','or','an','out','into','from','its']);
 const kwVecteezy = (list, isVideo) => {
   const out = [], seen = new Set();
   for (const raw of list) {
@@ -1194,6 +1195,7 @@ const kwVecteezy = (list, isVideo) => {
       w = w.replace(/[^\p{L}\p{N}]/gu, '');
       if (w.length < 2) continue;
       if (KW_STOP.has(w)) continue;
+      if (VZ_FUNC_WORDS.has(w)) continue;
       if (seen.has(w)) continue;
       if (VZ_BLOCKED_ALL.has(w)) continue;
       if (isVideo && VZ_BLOCKED_VIDEO.has(w)) continue;
@@ -1794,31 +1796,44 @@ const limitRepeats = (list, maxN) => {
   }
   return out;
 };
-let _bfCache = { sig: '', freq: new Map(), n: 0 };
-const batchFreq = () => {
-  const done = ((typeof appState !== 'undefined' && appState.queue) || []).filter(i => i.status === 'done' && i.result);
-  let tot = 0;
-  done.forEach(i => { tot += (i.result._cleanKeywords || i.result.keywords || []).length; });
-  const sig = done.length + ':' + tot;
-  if (_bfCache.sig === sig) return _bfCache;
-  const freq = new Map();
-  done.forEach(i => {
-    const seen = new Set();
-    (i.result._cleanKeywords || i.result.keywords || []).forEach(k => {
-      const t = kwStem(k);
-      if (t && !seen.has(t)) { seen.add(t); freq.set(t, (freq.get(t) || 0) + 1); }
-    });
-  });
-  _bfCache = { sig, freq, n: done.length };
-  return _bfCache;
+// Variasi antar file yang MIRIP (konservatif): hanya dibandingkan dengan file yang punya >=25% keyword sama,
+// jadi antrean campuran (vektor + video) tidak mengacaukan. 3 keyword pertama tetap; di posisi 4-10 maksimal 3
+// keyword yang dipakai >=80% file mirip dan tidak ada di judul digeser ke belakang, diganti keyword khas file ini.
+const _stemSetCache = new WeakMap();
+const kwStemSet = (arr) => {
+  const c = _stemSetCache.get(arr);
+  if (c && c.n === arr.length) return c.set;
+  const set = new Set(arr.map(kwStem).filter(Boolean));
+  _stemSetCache.set(arr, { n: arr.length, set });
+  return set;
 };
-// Variasi antar file satu batch (konservatif): 3 keyword pertama tetap; di posisi 4-10, maksimal 3 keyword yang
-// dipakai >=80% file lain dan tidak ada di judul digeser ke belakang, diganti keyword khas file ini.
-const diversifyKw = (out, title) => {
-  const bf = batchFreq();
-  if (bf.n < 4 || out.length < 12) return out;
+const batchPeers = (r) => {
+  const q = ((typeof appState !== 'undefined' && appState.queue) || []).filter(i => i.status === 'done' && i.result && i.result !== r);
+  const mine = kwStemSet(r._cleanKeywords || r.keywords || []);
+  if (!mine.size) return [];
+  const peers = [];
+  for (const i of q) {
+    const theirs = kwStemSet(i.result._cleanKeywords || i.result.keywords || []);
+    if (!theirs.size) continue;
+    let inter = 0;
+    mine.forEach(t => { if (theirs.has(t)) inter++; });
+    if (inter / Math.min(mine.size, theirs.size) >= 0.25) peers.push(theirs);
+  }
+  return peers;
+};
+const DIVERSIFY_KEEP_RE = /^(motion graphics?|seamless loop|looping animation|animation|3d render)$/i; // istilah format yang sering dicari pembeli: tidak pernah digeser
+const diversifyKw = (out, title, r) => {
+  if (out.length < 12) return out;
+  const peers = batchPeers(r);
+  if (peers.length < 3) return out;
   const tS = new Set(kwWords(title || '').map(stemWord));
-  const isCommon = (x) => (bf.freq.get(kwStem(x)) || 0) / bf.n >= 0.8 && !kwWords(x).some(w => tS.has(stemWord(w)));
+  const isCommon = (x) => {
+    const t = kwStem(x);
+    let c = 0;
+    peers.forEach(ps => { if (ps.has(t)) c++; });
+    if (DIVERSIFY_KEEP_RE.test(String(x).trim())) return false;
+    return c / peers.length >= 0.8 && !kwWords(x).some(w => tS.has(stemWord(w)));
+  };
   const isMain = (x) => !isTechKw(x) && !isColorKw(x);
   const head = out.slice(0, 3), rest = out.slice(3);
   const top = rest.slice(0, 7), tail = rest.slice(7);
@@ -1881,7 +1896,7 @@ const cleanKw = (list, r, platform) => {
   }
   out = orderKw(out);
   out = limitRepeats(out, MAX_STEM_REPEAT);
-  out = diversifyKw(out, titleFor(r, platform));
+  out = diversifyKw(out, titleFor(r, platform), r);
   out = alignTitleKw(out, titleFor(r, platform));
   if (/\b3d\b/i.test(r.adobe_title || r.p5_title || '')) {
     const idx = out.findIndex(x => /^3d[\s-]?render$/i.test(String(x).trim()));
